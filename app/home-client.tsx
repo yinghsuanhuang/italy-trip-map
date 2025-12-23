@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import MapView from "@/components/MapView";
 import PinModal from "@/components/PinModal";
+import PlaceSearch from "@/components/PlaceSearch";
 import type { Pin, PinType } from "@/lib/types";
 import { loadPins, savePins } from "@/lib/storage";
 
@@ -13,7 +14,7 @@ type Draft = {
     lat: number;
     lng: number;
     note: string;
-    stayMinutes: number; // ✅ UI 層保證一定有值
+    stayMinutes: number;
     createdAt?: number;
     updatedAt?: number;
     placeId?: string;
@@ -21,7 +22,7 @@ type Draft = {
 };
 
 function markerColor(type: PinType) {
-    return type === "restaurant" ? "#f97316" : "#3b82f6"; // orange / blue
+    return type === "restaurant" ? "#f97316" : "#3b82f6";
 }
 
 function defaultStay(type: PinType) {
@@ -42,8 +43,7 @@ export default function HomeClient() {
 
     // load from localStorage
     useEffect(() => {
-        const loaded = loadPins();
-        setPins(loaded);
+        setPins(loadPins());
     }, []);
 
     // persist
@@ -56,7 +56,7 @@ export default function HomeClient() {
         const map = mapRef.current;
         if (!map) return;
 
-        // remove markers no longer exist
+        // remove markers
         for (const [id, mk] of markersRef.current.entries()) {
             if (!pins.some((p) => p.id === id)) {
                 mk.setMap(null);
@@ -93,10 +93,11 @@ export default function HomeClient() {
                         lat: p.lat,
                         lng: p.lng,
                         note: p.note ?? "",
-                        // ✅ 關鍵：避免 number | undefined
                         stayMinutes: p.stayMinutes ?? defaultStay(p.type),
                         createdAt: p.createdAt,
                         updatedAt: p.updatedAt,
+                        placeId: p.placeId,
+                        address: p.address,
                     });
                     setModalOpen(true);
                 });
@@ -104,33 +105,40 @@ export default function HomeClient() {
                 markersRef.current.set(p.id, mk);
             } else {
                 existing.setPosition(position);
-                existing.setTitle(p.name);
-                existing.setIcon({
-                    path: google.maps.SymbolPath.CIRCLE,
-                    fillColor: markerColor(p.type),
-                    fillOpacity: 1,
-                    strokeColor: "white",
-                    strokeWeight: 2,
-                    scale: 8,
-                });
             }
         }
     }, [pins]);
 
-    const openCreateAt = (lat: number, lng: number) => {
+    /** 開啟新增 modal（地圖點擊 or 搜尋都走這） */
+    const openCreateAt = (
+        lat: number,
+        lng: number,
+        prefill?: Partial<{
+            name: string;
+            type: PinType;
+            note: string;
+            stayMinutes: number;
+            placeId: string;
+            address: string;
+        }>
+    ) => {
+        const t = prefill?.type ?? "spot";
+
         setModalMode("create");
         setDraft({
-            type: "spot",
-            name: "",
+            type: t,
+            name: prefill?.name ?? "",
             lat,
             lng,
-            note: "",
-            stayMinutes: 90,
+            note: prefill?.note ?? "",
+            stayMinutes: prefill?.stayMinutes ?? defaultStay(t),
+            placeId: prefill?.placeId,
+            address: prefill?.address,
         });
         setModalOpen(true);
     };
 
-    // ✅ normalize: 自動補齊 stayMinutes/createdAt/updatedAt，避免資料不完整與 TS 噴錯
+    /** 存檔（補齊必要欄位） */
     const handleSave = (pin: Pin) => {
         const now = Date.now();
         const normalized: Pin = {
@@ -142,11 +150,8 @@ export default function HomeClient() {
 
         setPins((prev) => {
             const idx = prev.findIndex((p) => p.id === normalized.id);
-
-            // new
             if (idx === -1) return [...prev, normalized];
 
-            // update (保留最早 createdAt)
             const existing = prev[idx];
             const next = [...prev];
             next[idx] = {
@@ -166,54 +171,67 @@ export default function HomeClient() {
 
     return (
         <main className="w-screen h-screen relative">
+            {/* 地圖 */}
             <MapView
                 onMapReady={(map) => {
                     mapRef.current = map;
 
-                    // 點地圖新增 pin
+                    // 點地圖新增 pin（POI 會自動補名稱）
                     map.addListener("click", (e: google.maps.MapMouseEvent) => {
                         if (!e.latLng) return;
 
-                        // 先開 modal（讓 UI 立即有反應）
                         openCreateAt(e.latLng.lat(), e.latLng.lng());
 
-                        // 如果點到 Google 的 POI，會有 placeId
                         const placeId = (e as any).placeId as string | undefined;
                         if (!placeId) return;
 
-                        // 阻止預設的 POI info window（可選，但建議）
                         if (typeof (e as any).stop === "function") (e as any).stop();
 
                         const service = new google.maps.places.PlacesService(map);
                         service.getDetails(
-                            { placeId, fields: ["name", "place_id", "formatted_address"] },
+                            { placeId, fields: ["name", "formatted_address"] },
                             (place, status) => {
-                                if (status !== google.maps.places.PlacesServiceStatus.OK || !place) return;
+                                if (
+                                    status !== google.maps.places.PlacesServiceStatus.OK ||
+                                    !place
+                                )
+                                    return;
 
-                                // 把名稱自動填進 modal
-                                setDraft((prev) => {
-                                    if (!prev) return prev;
-                                    return {
-                                        ...prev,
-                                        name: place.name ?? prev.name,
-                                        // 你之後要做營業時間檢查，一定會用到 placeId
-                                        // 先存著（PinModal 不用顯示也沒關係）
-                                        placeId: place.place_id ?? placeId,
-                                        address: place.formatted_address ?? undefined,
-                                    } as any;
-                                });
+                                setDraft((prev) =>
+                                    prev
+                                        ? {
+                                            ...prev,
+                                            name: place.name ?? prev.name,
+                                            placeId,
+                                            address: place.formatted_address ?? undefined,
+                                        }
+                                        : prev
+                                );
                             }
                         );
                     });
-
                 }}
             />
 
-            {/* small badge */}
+            {/* 🔍 搜尋新增 pin（自動判斷餐廳/景點） */}
+            <PlaceSearch
+                map={mapRef.current}
+                onPickPlace={({ name, lat, lng, type, placeId, address }) => {
+                    openCreateAt(lat, lng, {
+                        name,
+                        type,
+                        placeId,
+                        address,
+                    });
+                }}
+            />
+
+            {/* badge */}
             <div className="absolute top-3 left-3 rounded-xl bg-white/90 shadow px-3 py-2 text-sm">
                 {pinsCountText}（點地圖可新增）
             </div>
 
+            {/* modal */}
             <PinModal
                 open={modalOpen}
                 mode={modalMode}
