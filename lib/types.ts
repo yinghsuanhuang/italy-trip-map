@@ -1,20 +1,31 @@
+export type PinCategory =
+    | "restaurant"
+    | "cafe"
+    | "bar"
+    | "museum"
+    | "landmark"
+    | "church"
+    | "shopping"
+    | "park"
+    | "beach"
+    | "nightlife"
+    | "transport"
+    | "hotel"
+    | "other";
+
 export type PinType = "spot" | "restaurant";
 
 export type Pin = {
     id: string;
     type: PinType;
+    category: PinCategory; // ✅ 新增：自動歸類
     name: string;
     lat: number;
     lng: number;
-
     note?: string;
-
-    // ✅ 先改成可選，避免你 demo pins / 初期資料一直報錯
-    stayMinutes?: number; // 預設：spot=90, restaurant=60（存檔時補）
-    createdAt?: number;
-    updatedAt?: number;
-
-    // 後面要接 Places 才會用到
+    stayMinutes: number;
+    createdAt: number;
+    updatedAt: number;
     placeId?: string;
     address?: string;
 };

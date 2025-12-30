@@ -89,9 +89,6 @@ export default function PlaceSearch(props: {
                     placeholder="搜尋景點/餐廳（例如：Colosseum, Da Enzo al 29）"
                     className="w-full bg-transparent outline-none text-gray-800 placeholder:text-gray-400"
                 />
-                <div className="mt-1 text-xs text-gray-500">
-                    你選擇結果後，會自動帶入名稱並開啟新增 Pin
-                </div>
             </div>
         </div>
     );

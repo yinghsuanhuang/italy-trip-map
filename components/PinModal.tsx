@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { Pin, PinType } from "@/lib/types";
+import type { Pin, PinType, PinCategory } from "@/lib/types";
 
 type Draft = {
     id?: string;
     type: PinType;
+    category?: PinCategory;
     name: string;
     lat: number;
     lng: number;
@@ -36,6 +37,7 @@ export default function PinModal(props: {
     const lng = initial?.lng ?? 0;
 
     const defaultStay = (t: PinType) => (t === "restaurant" ? 60 : 90);
+    const defaultCategory = (t: PinType): PinCategory => (t === "restaurant" ? "restaurant" : "other");
 
     useEffect(() => {
         if (!open || !initial) return;
@@ -72,6 +74,7 @@ export default function PinModal(props: {
         const pin: Pin = {
             id: initial.id ?? crypto.randomUUID(),
             type,
+            category: initial.category ?? defaultCategory(type),
             name: name.trim(),
             lat,
             lng,
